@@ -292,9 +292,9 @@ If the user chooses to log in:
 ---
 """
 
-    # Add dynamic message for personality conversation phase
-    if required_complete and not user_info.get("verification_code_sent"):
-        prompt += """
+        # Add dynamic message for personality conversation phase
+        if required_complete and not user_info.get("verification_code_sent"):
+            prompt += """
 
 🎉 ALL REQUIRED FIELDS COLLECTED!
 
@@ -303,8 +303,8 @@ Do NOT send verification code yet. Get to know them first through natural conver
 Only after personality conversation is done, then send verification code (step 10).
 """
 
-    logger.info(f"Generated dynamic prompt for session {session_id}")
-    return prompt
+        logger.info(f"Generated dynamic prompt for session {session_id}")
+        return prompt
 
     except Exception as e:
         logger.error(f"Error in set_prompt: {str(e)}")
