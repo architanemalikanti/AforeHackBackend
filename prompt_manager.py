@@ -302,10 +302,10 @@ If the user chooses to log in:
 Do NOT send verification code yet. Get to know them first through natural conversation.
 Only after personality conversation is done, then send verification code (step 10).
 """
-        
-        logger.info(f"Generated dynamic prompt for session {session_id}")
-        return prompt
-        
+
+    logger.info(f"Generated dynamic prompt for session {session_id}")
+    return prompt
+
     except Exception as e:
         logger.error(f"Error in set_prompt: {str(e)}")
         return f"""You are an assistant for the app "Glow". 
