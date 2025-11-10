@@ -155,6 +155,40 @@ async def create_redis_key():
     session_id = str(uuid.uuid4())
     return {"session_id": session_id}
 
+@app.get("/poll/{session_id}")
+async def poll_user_id(session_id: str):
+    """
+    Poll endpoint for iOS to check if user_id is ready after verification.
+    Returns user_id if available, or status if still processing.
+    """
+    try:
+        redis_key = f"session:{session_id}"
+        session_data_str = r.get(redis_key)
+
+        if not session_data_str:
+            return {"status": "not_found", "message": "Session not found"}
+
+        session_data = json.loads(session_data_str)
+        user_id = session_data.get("user_id")
+
+        if user_id:
+            # User ID is ready!
+            return {
+                "status": "ready",
+                "user_id": user_id,
+                "session_id": session_id
+            }
+        else:
+            # Still processing
+            return {
+                "status": "processing",
+                "message": "User verification in progress"
+            }
+
+    except Exception as e:
+        logger.error(f"Error polling for user_id: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
 @app.delete("/cleanup/{session_id}")
 async def cleanup_session(session_id: str):
     """
