@@ -142,7 +142,8 @@ async def chat_stream(q: str = Query(""), session_id: str = Query(...)):
         # If gender was just set, send event to show analyze button
         if gender_just_set:
             logger.info(f"🎨 Sending show_analyze_button event for {session_id}")
-            yield f"event: show_analyze_button\ndata: {json.dumps({{'session_id': session_id, 'message': 'Show analyze my vibe button'}})\n\n"
+            event_data = json.dumps({'session_id': session_id, 'message': 'Show analyze my vibe button'})
+            yield f"event: show_analyze_button\ndata: {event_data}\n\n"
 
         # If verification succeeded, send onboarding_complete immediately
         if verification_succeeded:
