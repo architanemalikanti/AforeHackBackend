@@ -11,6 +11,7 @@ from redis_client import r
 from database.db import SessionLocal
 from database.models import User
 from jwt_utils import create_token_pair
+from prompt_manager import set_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,11 @@ def save_redis_to_postgres(session_id: str) -> int:
         session_data = json.loads(session_json)
         user_data = session_data.get("signup_data", {})
         logger.info(f"Retrieved Redis data for session {session_id}")
-        
+
+        # Generate and save the current dynamic prompt state
+        current_prompt = set_prompt(session_id)
+        logger.info(f"Generated prompt for user (length: {len(current_prompt)} chars)")
+
         # Create User object - Redis keys now match database column names
         new_user = User(
             session_id=session_id,
@@ -53,7 +58,8 @@ def save_redis_to_postgres(session_id: str) -> int:
             pronouns=user_data.get("pronouns"),
             university=user_data.get("university"),
             college_major=user_data.get("college_major"),
-            occupation=user_data.get("occupation")
+            occupation=user_data.get("occupation"),
+            prompt=current_prompt  # Save the prompt state
         )
         
         db.add(new_user)

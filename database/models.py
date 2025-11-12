@@ -26,4 +26,5 @@ class User(Base):
     college_major = Column(String(200), nullable=True)
     occupation = Column(String(200), nullable=True)
     conversations = Column(JSONB, default=list)  # Array of conversation dicts
+    prompt = Column(String, nullable=True)  # Store the dynamic prompt state for user
 

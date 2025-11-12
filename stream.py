@@ -106,7 +106,8 @@ async def chat_stream(q: str = Query(""), session_id: str = Query(...)):
         
         verification_succeeded = False
         background_task_started = False
-        
+        gender_just_set = False
+
         async with AsyncSqliteSaver.from_conn_string(DB_PATH) as async_memory:
             async_abot = Agent(model, all_tools, system=dynamic_prompt, checkpointer=async_memory)
             async for ev in async_abot.graph.astream_events({"messages": messages}, thread, version="v1"):
@@ -114,7 +115,12 @@ async def chat_stream(q: str = Query(""), session_id: str = Query(...)):
                 if ev["event"] == "on_tool_end":
                     tool_name = ev.get("name", "")
                     tool_output = ev.get("data", {}).get("output", "")
-                    
+
+                    # Check if gender was just set
+                    if tool_name == "get_user_gender":
+                        gender_just_set = True
+                        logger.info(f"🎨 Gender was set, will show analyze button for {session_id}")
+
                     if tool_name == "test_verification_code" and tool_output == "verified":
                         verification_succeeded = True
                         # Start background task immediately
@@ -132,7 +138,12 @@ async def chat_stream(q: str = Query(""), session_id: str = Query(...)):
                     content = ev["data"]["chunk"].content
                     if content:
                         yield f"event: token\ndata: {json.dumps({'content': content})}\n\n"
-        
+
+        # If gender was just set, send event to show analyze button
+        if gender_just_set:
+            logger.info(f"🎨 Sending show_analyze_button event for {session_id}")
+            yield f"event: show_analyze_button\ndata: {json.dumps({{'session_id': session_id, 'message': 'Show analyze my vibe button'}})\n\n"
+
         # If verification succeeded, send onboarding_complete immediately
         if verification_succeeded:
             logger.info(f"✅ Sending onboarding_complete to iOS for session {session_id}")
@@ -154,6 +165,37 @@ async def create_redis_key():
     import uuid
     session_id = str(uuid.uuid4())
     return {"session_id": session_id}
+
+@app.post("/set-analyze-button/{session_id}")
+async def set_analyze_button(session_id: str):
+    """
+    Called when user clicks 'Analyze My Vibe' button.
+    Sets a flag in Redis to trigger early verification flow.
+    """
+    try:
+        redis_key = f"session:{session_id}"
+        session_data_str = r.get(redis_key)
+
+        if not session_data_str:
+            return {"status": "error", "message": "Session not found"}
+
+        session_data = json.loads(session_data_str)
+
+        # Set the flag that user clicked the analyze button
+        session_data["analyze_button_pressed"] = True
+
+        r.set(redis_key, json.dumps(session_data))
+        logger.info(f"🎨 Analyze button pressed for session {session_id}")
+
+        return {
+            "status": "success",
+            "message": "Analyze button flag set",
+            "session_id": session_id
+        }
+
+    except Exception as e:
+        logger.error(f"Error setting analyze button for session {session_id}: {e}")
+        return {"status": "error", "error": str(e)}
 
 @app.get("/poll/{session_id}")
 async def poll_user_id(session_id: str):
