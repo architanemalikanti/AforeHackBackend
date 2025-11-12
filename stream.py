@@ -301,6 +301,51 @@ async def health_check():
             "error": str(e)
         }
 
+@app.get("/debug/latest-session")
+async def get_latest_session():
+    """
+    Debug endpoint: Get the most recent Redis session and its contents.
+    Useful for Postman testing.
+    """
+    try:
+        # Get all session keys
+        keys = r.keys("session:*")
+
+        if not keys:
+            return {
+                "status": "no_sessions",
+                "message": "No sessions found in Redis"
+            }
+
+        # Get the most recent one (first in list)
+        latest_key = keys[0].decode() if isinstance(keys[0], bytes) else keys[0]
+        session_data_str = r.get(latest_key)
+
+        if not session_data_str:
+            return {
+                "status": "error",
+                "message": "Session key exists but no data found"
+            }
+
+        # Parse the session data
+        session_data = json.loads(session_data_str)
+
+        return {
+            "status": "success",
+            "session_id": latest_key.replace("session:", ""),
+            "full_key": latest_key,
+            "data": session_data,
+            "analyze_button_pressed": session_data.get("analyze_button_pressed", False),
+            "total_sessions": len(keys)
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching latest session: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("stream:app", host="0.0.0.0", port=8000, reload=True)
