@@ -431,6 +431,311 @@ async def generate_user_introduction(user_id: str):
     finally:
         db.close()
 
+@app.get("/user/{user_id}/bio")
+async def generate_user_bio(user_id: str):
+    """
+    Generate a short Instagram-style bio line for a user.
+    Uses their university, occupation, conversations, and other data from Postgres.
+
+    Args:
+        user_id: The user's ID in the database
+
+    Returns:
+        A short bio line like "cornell ECE '26 • SF" or "wharton | NYC"
+    """
+
+    db = SessionLocal()
+    try:
+        # Query user by ID
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        # Gather all available user data
+        name = user.name if user.name else ""
+        university = user.university if user.university else ""
+        college_major = user.college_major if user.college_major else ""
+        occupation = user.occupation if user.occupation else ""
+        conversations = user.conversations if user.conversations else []
+
+        # Create prompt for Claude to generate bio
+        prompt = f"""Generate a short, Instagram-style bio line for a user based on their information.
+
+User Information:
+- Name: {name}
+- University: {university}
+- Major: {college_major}
+- Occupation: {occupation}
+- Conversations: {json.dumps(conversations)}
+
+Requirements:
+- ONE line only (like an Instagram bio)
+- Include school/university with major/year if available (e.g., "cornell ECE '26")
+- Include city or location if mentioned in conversations
+- Use symbols like • or | to separate elements
+- Keep it SHORT and chic
+- Lowercase preferred
+- Examples: "cornell ECE '26 • SF", "wharton | NYC", "stanford cs • building in SF", "google | brooklyn"
+
+Based on the user's info and conversations, generate a short bio line:"""
+
+        # Call Claude API
+        from anthropic import Anthropic
+        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=100,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+
+        bio = response.content[0].text.strip()
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "bio": bio
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating bio for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.get("/user/{user_id}/twoCaptions")
+async def generate_user_captions(user_id: str):
+    """
+    Generate two strong, bold captions about the user for their profile.
+    These will be the biggest/boldest text on their profile.
+    Uses conversations and user data from Postgres.
+
+    Args:
+        user_id: The user's ID in the database
+
+    Returns:
+        Two short, chic, bold captions
+    """
+
+    db = SessionLocal()
+    try:
+        # Query user by ID
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        # Gather all available user data
+        name = user.name if user.name else ""
+        gender = user.gender if user.gender else ""
+        university = user.university if user.university else ""
+        college_major = user.college_major if user.college_major else ""
+        occupation = user.occupation if user.occupation else ""
+        conversations = user.conversations if user.conversations else []
+
+        # Create prompt for Claude to generate captions
+        prompt = f"""Generate TWO strong, bold captions about this user for their profile. These will be the BIGGEST and BOLDEST text on their profile.
+
+User Information:
+- Name: {name}
+- Gender: {gender}
+- University: {university}
+- Major: {college_major}
+- Occupation: {occupation}
+- Conversations: {json.dumps(conversations)}
+
+Requirements:
+- Generate EXACTLY 2 captions
+- Each caption should be SHORT (3-7 words max)
+- Bold, confident, attention-grabbing
+- Chic and entertaining
+- Based on their personality from conversations
+- Lowercase preferred
+- Third person.
+
+Analyze their conversations and info to capture their vibe. Generate 2 strong captions:"""
+
+        # Call Claude API
+        from anthropic import Anthropic
+        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=150,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+
+        # Parse response to extract two captions
+        response_text = response.content[0].text.strip()
+
+        # Split by newlines or numbers to get two captions
+        lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+
+        # Clean up any numbering (1., 2., etc)
+        captions = []
+        for line in lines:
+            cleaned = line.lstrip('12345678.-) ').strip('"\'')
+            if cleaned:
+                captions.append(cleaned)
+
+        # Ensure we have exactly 2 captions
+        if len(captions) < 2:
+            captions = ["chic and mysterious", "living my best life"]
+
+        caption1 = captions[0]
+        caption2 = captions[1] if len(captions) > 1 else captions[0]
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "caption1": caption1,
+            "caption2": caption2
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating captions for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.get("/user/{user_id}/eightCaptions")
+async def generate_eight_captions(user_id: str):
+    """
+    Generate 8 captions to describe the user for their profile.
+    Main character energy, third person.
+    Uses conversations and user data from Postgres.
+
+    Args:
+        user_id: The user's ID in the database
+
+    Returns:
+        Eight captions describing the user
+    """
+
+    db = SessionLocal()
+    try:
+        # Query user by ID
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        # Gather all available user data
+        name = user.name if user.name else ""
+        gender = user.gender if user.gender else ""
+        university = user.university if user.university else ""
+        college_major = user.college_major if user.college_major else ""
+        occupation = user.occupation if user.occupation else ""
+        sexuality = user.sexuality if user.sexuality else ""
+        ethnicity = user.ethnicity if user.ethnicity else ""
+        pronouns = user.pronouns if user.pronouns else ""
+        conversations = user.conversations if user.conversations else []
+
+        # Create prompt for Claude to generate 8 captions
+        prompt = f"""Generate EIGHT captions to describe this user for their profile. Main character energy, third person.
+
+User Information:
+- Name: {name}
+- Gender: {gender}
+- Pronouns: {pronouns}
+- University: {university}
+- Major: {college_major}
+- Occupation: {occupation}
+- Sexuality: {sexuality}
+- Ethnicity: {ethnicity}
+- Conversations: {json.dumps(conversations)}
+
+Requirements:
+- Generate EXACTLY 8 captions, make sure they are specific to the user's personality, and capture specfic aspects of who they are. 
+- Each caption should be SHORT (3-8 words max)
+- Third person only
+- Main character energy
+- Chic, fun, entertaining
+- Based on their personality from conversations
+- Lowercase preferred
+- Capture different aspects of who they are
+
+Analyze their conversations and info deeply. Generate 8 captions that paint a full picture of who they are:"""
+
+        # Call Claude API
+        from anthropic import Anthropic
+        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=300,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+
+        # Parse response to extract 8 captions
+        response_text = response.content[0].text.strip()
+
+        # Split by newlines to get captions
+        lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+
+        # Clean up any numbering (1., 2., etc)
+        captions = []
+        for line in lines:
+            cleaned = line.lstrip('12345678.-) ').strip('"\'')
+            if cleaned:
+                captions.append(cleaned)
+
+        # Ensure we have exactly 8 captions
+        default_captions = [
+            "living their best life",
+            "chic and mysterious",
+            "main character energy",
+            "your new favorite person",
+            "vibes immaculate",
+            "certified trendsetter",
+            "story worth hearing",
+            "effortlessly cool"
+        ]
+
+        while len(captions) < 8:
+            captions.append(default_captions[len(captions)])
+
+        # Return exactly 8 captions
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "captions": captions[:8]
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating 8 captions for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
 @app.get("/debug/all-sessions")
 async def get_all_sessions():
     """
