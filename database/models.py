@@ -10,7 +10,7 @@ class User(Base):
     # Match actual database schema
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username = Column(String(80), unique=True, nullable=False)
-    email = Column(String(120), unique=True, nullable=False)
+    email = Column(String(120), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     name = Column(String(100), nullable=False)  # First name
 

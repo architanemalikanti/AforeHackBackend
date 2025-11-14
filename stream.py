@@ -389,12 +389,12 @@ async def generate_user_introduction(user_id: str):
                 - Lowercase letters throughout
                 - Gen-z/fun vibe
 
-                Example style: "introducing mademoiselle archita🌸", 
+                Example style: "introducing mademoiselle archita", 
                 "presenting miss archita", 
                 "introducing the one and only archita", 
                 "presenting the divine archita"
 
-                are a few examples for women. make it end with the name of the user. 
+                are a few examples for women. make it end with the name of the user (no emojis allowed). 
 
 
                 Now generate one for {name} ({gender}):"""
@@ -424,88 +424,6 @@ async def generate_user_introduction(user_id: str):
 
     except Exception as e:
         logger.error(f"Error generating introduction for {user_id}: {e}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
-    finally:
-        db.close()
-
-@app.get("/user/{user_id}/bio")
-async def generate_user_bio(user_id: str):
-    """
-    Generate a short Instagram-style bio line for a user.
-    Uses their university, occupation, conversations, and other data from Postgres.
-
-    Args:
-        user_id: The user's ID in the database
-
-    Returns:
-        A short bio line like "cornell ECE '26 • SF" or "wharton | NYC"
-    """
-
-    db = SessionLocal()
-    try:
-        # Query user by ID
-        user = db.query(User).filter(User.id == user_id).first()
-
-        if not user:
-            return {
-                "status": "error",
-                "message": "User not found"
-            }
-
-        # Gather all available user data
-        name = user.name if user.name else ""
-        university = user.university if user.university else ""
-        college_major = user.college_major if user.college_major else ""
-        occupation = user.occupation if user.occupation else ""
-        conversations = user.conversations if user.conversations else []
-
-        # Create prompt for Claude to generate bio
-        prompt = f"""Generate a short, Instagram-style bio line for a user based on their information.
-
-User Information:
-- Name: {name}
-- University: {university}
-- Major: {college_major}
-- Occupation: {occupation}
-- Conversations: {json.dumps(conversations)}
-
-Requirements:
-- ONE line only (like an Instagram bio)
-- Include school/university with major/year if available (e.g., "cornell ECE '26")
-- Include city or location if mentioned in conversations
-- Use symbols like • or | to separate elements
-- Keep it SHORT and chic
-- Lowercase preferred
-- Examples: "cornell ECE '26 • SF", "wharton | NYC", "stanford cs • building in SF", "google | brooklyn"
-
-Based on the user's info and conversations, generate a short bio line:"""
-
-        # Call Claude API
-        from anthropic import Anthropic
-        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=100,
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }]
-        )
-
-        bio = response.content[0].text.strip()
-
-        return {
-            "status": "success",
-            "user_id": user_id,
-            "bio": bio
-        }
-
-    except Exception as e:
-        logger.error(f"Error generating bio for {user_id}: {e}")
         return {
             "status": "error",
             "error": str(e)
@@ -566,6 +484,8 @@ Requirements:
 - Lowercase preferred
 - Third person.
 
+IMPORTANT: Return ONLY the two captions, one per line. NO explanatory text, NO introductions, NO symbols like ** or bullets. Just the captions themselves.
+
 Analyze their conversations and info to capture their vibe. Generate 2 strong captions:"""
 
         # Call Claude API
@@ -587,11 +507,19 @@ Analyze their conversations and info to capture their vibe. Generate 2 strong ca
         # Split by newlines or numbers to get two captions
         lines = [line.strip() for line in response_text.split('\n') if line.strip()]
 
-        # Clean up any numbering (1., 2., etc)
+        # Clean up any numbering, symbols, and explanatory text
         captions = []
         for line in lines:
-            cleaned = line.lstrip('12345678.-) ').strip('"\'')
-            if cleaned:
+            # Skip lines that look like explanatory text
+            lower_line = line.lower()
+            if any(phrase in lower_line for phrase in ['based on', 'here are', 'these captions', 'analyzing', 'capturing']):
+                continue
+
+            # Remove numbering, quotes, asterisks, bullets, etc.
+            cleaned = line.lstrip('12345678.-) ').strip('"\'*•–—')
+            # Remove any remaining asterisks in the middle
+            cleaned = cleaned.replace('**', '').replace('*', '')
+            if cleaned and len(cleaned) > 2:  # Filter out very short fragments
                 captions.append(cleaned)
 
         # Ensure we have exactly 2 captions
@@ -668,7 +596,7 @@ User Information:
 - Conversations: {json.dumps(conversations)}
 
 Requirements:
-- Generate EXACTLY 8 captions, make sure they are specific to the user's personality, and capture specfic aspects of who they are. 
+- Generate EXACTLY 8 captions, make sure they are specific to the user's personality, and capture specfic aspects of who they are.
 - Each caption should be SHORT (3-8 words max)
 - Third person only
 - Main character energy
@@ -676,6 +604,8 @@ Requirements:
 - Based on their personality from conversations
 - Lowercase preferred
 - Capture different aspects of who they are
+
+IMPORTANT: Return ONLY the eight captions, one per line. NO explanatory text, NO introductions, NO symbols like ** or bullets. Just the captions themselves.
 
 Analyze their conversations and info deeply. Generate 8 captions that paint a full picture of who they are:"""
 
@@ -698,11 +628,19 @@ Analyze their conversations and info deeply. Generate 8 captions that paint a fu
         # Split by newlines to get captions
         lines = [line.strip() for line in response_text.split('\n') if line.strip()]
 
-        # Clean up any numbering (1., 2., etc)
+        # Clean up any numbering, symbols, and explanatory text
         captions = []
         for line in lines:
-            cleaned = line.lstrip('12345678.-) ').strip('"\'')
-            if cleaned:
+            # Skip lines that look like explanatory text
+            lower_line = line.lower()
+            if any(phrase in lower_line for phrase in ['based on', 'here are', 'these captions', 'analyzing', 'capturing', 'paint a', 'who they are']):
+                continue
+
+            # Remove numbering, quotes, asterisks, bullets, etc.
+            cleaned = line.lstrip('12345678.-) ').strip('"\'*•–—')
+            # Remove any remaining asterisks in the middle
+            cleaned = cleaned.replace('**', '').replace('*', '')
+            if cleaned and len(cleaned) > 2:  # Filter out very short fragments
                 captions.append(cleaned)
 
         # Ensure we have exactly 8 captions
