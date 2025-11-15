@@ -7,8 +7,10 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from fastapi import FastAPI, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import List, Optional
 from database.db import SessionLocal
-from database.models import User
+from database.models import User, Design
 from agent import Agent
 from prompt_manager import set_prompt
 from redis_client import r
@@ -667,6 +669,189 @@ Analyze their conversations and info deeply. Generate 8 captions that paint a fu
 
     except Exception as e:
         logger.error(f"Error generating 8 captions for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+# Pydantic model for design creation request
+class DesignCreate(BaseModel):
+    user_id: str
+    two_captions: List[str]
+    intro_caption: str
+    eight_captions: List[str]
+    design_name: str
+    song: str
+
+@app.get("/user/{user_id}/topQuestions")
+async def generate_top_questions(user_id: str):
+    """
+    Generate the top 2 questions this user might ask based on their conversation history.
+    Uses conversations from Postgres.
+
+    Args:
+        user_id: The user's ID in the database
+
+    Returns:
+        Two questions the user might ask
+    """
+    db = SessionLocal()
+    try:
+        # Query user by ID
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        # Get user data
+        name = user.name if user.name else ""
+        conversations = user.conversations if user.conversations else []
+
+        if not conversations:
+            return {
+                "status": "error",
+                "message": "No conversations found for this user"
+            }
+
+        # Create prompt for Claude to analyze conversations and generate questions
+        prompt = f"""Analyze this user's conversation history and generate the top 2 questions / things they'd they're most likely talk about / things they are most likely to ask next.
+
+User Information:
+- Name: {name}
+- Conversations: {json.dumps(conversations)}
+
+Based on their conversation patterns, interests, and personality, what are the top 2 questions they would most likely ask?
+
+Requirements:
+- Generate EXACTLY 2 questions
+- Questions should feel natural and aligned with their interests/personality
+- Each question should be SHORT (5-15 words)
+- Based on what they've talked about in conversations
+- Write questions in girly, genz, human tone. you can be humorous. 
+
+IMPORTANT: Return ONLY the two questions, one per line. NO explanatory text, NO introductions, NO numbering, NO symbols like ** or bullets. Just the questions themselves.
+
+Generate 2 questions:"""
+
+        # Call Claude API
+        from anthropic import Anthropic
+        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+
+        # Parse response to extract two questions
+        response_text = response.content[0].text.strip()
+
+        # Split by newlines to get questions
+        lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+
+        # Clean up any numbering, symbols, and explanatory text
+        questions = []
+        for line in lines:
+            # Skip lines that look like explanatory text
+            lower_line = line.lower()
+            if any(phrase in lower_line for phrase in ['based on', 'here are', 'these questions', 'analyzing', 'likely to ask']):
+                continue
+
+            # Remove numbering, quotes, asterisks, bullets, etc.
+            cleaned = line.lstrip('12345678.-) ').strip('"\'*•–—')
+            # Remove any remaining asterisks in the middle
+            cleaned = cleaned.replace('**', '').replace('*', '')
+            if cleaned and len(cleaned) > 5:  # Filter out very short fragments
+                questions.append(cleaned)
+
+        # Ensure we have exactly 2 questions
+        if len(questions) < 2:
+            questions = [
+                "what's your favorite thing to do on weekends?",
+                "any fun plans coming up?"
+            ]
+
+        question1 = questions[0]
+        question2 = questions[1] if len(questions) > 1 else questions[0]
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "question1": question1,
+            "question2": question2
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating questions for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.post("/design/create")
+async def create_design(design_data: DesignCreate):
+    """
+    Create a new design for a user and save it to the designs table.
+
+    Request body:
+    {
+        "user_id": "uuid-string",
+        "two_captions": ["caption1", "caption2"],
+        "intro_caption": "introducing mademoiselle archita 🌸",
+        "eight_captions": ["caption1", "caption2", ..., "caption8"],
+        "design_name": "design name",
+        "song": "song name or URL"
+    }
+
+    Returns:
+        Design ID and success status
+    """
+    db = SessionLocal()
+    try:
+        # Verify user exists
+        user = db.query(User).filter(User.id == design_data.user_id).first()
+        if not user:
+            return {
+                "status": "error",
+                "message": f"User with ID {design_data.user_id} not found"
+            }
+
+        # Create new design
+        new_design = Design(
+            user_id=design_data.user_id,
+            two_captions=design_data.two_captions,
+            intro_caption=design_data.intro_caption,
+            eight_captions=design_data.eight_captions,
+            design_name=design_data.design_name,
+            song=design_data.song
+        )
+
+        db.add(new_design)
+        db.commit()
+        db.refresh(new_design)
+
+        logger.info(f"✅ Created design {new_design.id} for user {design_data.user_id}")
+
+        return {
+            "status": "success",
+            "design_id": new_design.id,
+            "user_id": design_data.user_id,
+            "message": "Design created successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Error creating design: {e}")
+        db.rollback()
         return {
             "status": "error",
             "error": str(e)
