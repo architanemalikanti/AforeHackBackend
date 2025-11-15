@@ -798,6 +798,95 @@ Generate 2 questions:"""
     finally:
         db.close()
 
+@app.get("/user/{user_id}/currentEra")
+async def get_current_era(user_id: str):
+    """
+    Analyze the user's conversations and return a cinematic description of their current "era".
+    Very Gen-Z, very girly, very main character energy.
+
+    Args:
+        user_id: The user's ID in the database
+
+    Returns:
+        A cinematic 1-3 sentence description of what era they're in right now
+    """
+    db = SessionLocal()
+    try:
+        # Query user by ID
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        # Get user data
+        name = user.name if user.name else ""
+        conversations = user.conversations if user.conversations else []
+
+        if not conversations:
+            return {
+                "status": "error",
+                "message": "No conversations found for this user"
+            }
+
+        # Create prompt for Claude to analyze and describe their current era
+        prompt = f"""Analyze this user's recent conversations and describe what "era" they're currently in.
+
+User Information:
+- Name: {name}
+- Conversations: {json.dumps(conversations)}
+
+Based on their recent conversations, what's happening in their life right now? What era are they entering or living through?
+
+Requirements:
+- Write 1-3 sentences MAX
+- Cinematic and dramatic tone
+- Very Gen-Z, very girly. 
+- Third person (e.g., "{name} is entering her law school era")
+- Lowercase preferred
+- Focus on what's currently happening or about to happen in their life
+- Make it feel like a movie narration
+- three sentences max. 
+
+IMPORTANT: Return ONLY the era description. NO explanatory text, NO introductions. Just the cinematic description itself.
+
+Analyze their conversations and describe their current era:"""
+
+        # Call Claude API
+        from anthropic import Anthropic
+        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
+        )
+
+        era_description = response.content[0].text.strip()
+
+        # Clean up any unwanted formatting
+        era_description = era_description.replace('**', '').replace('*', '')
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "era": era_description
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating era description for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
 @app.post("/design/create")
 async def create_design(design_data: DesignCreate):
     """
