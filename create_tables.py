@@ -4,7 +4,7 @@ Script to create database tables from SQLAlchemy models.
 Run this once to initialize your database schema.
 """
 from database.db import engine, Base
-from database.models import User, Design
+from database.models import User, Design, Follow, FollowRequest
 
 if __name__ == "__main__":
     # Drop all tables (to reset schema with new columns)

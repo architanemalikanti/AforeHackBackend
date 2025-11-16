@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from database.db import SessionLocal
-from database.models import User, Design
+from database.models import User, Design, Follow, FollowRequest
 from agent import Agent
 from prompt_manager import set_prompt
 from redis_client import r
@@ -1059,6 +1059,381 @@ async def get_all_sessions():
             "status": "error",
             "error": str(e)
         }
+
+# ===== FOLLOW SYSTEM ROUTES =====
+
+# Pydantic models for follow requests
+class FollowRequestCreate(BaseModel):
+    requester_id: str
+    requested_id: str
+
+class FollowActionRequest(BaseModel):
+    requester_id: str
+    requested_id: str
+
+@app.post("/follow/request")
+async def send_follow_request(request_data: FollowRequestCreate):
+    """
+    User A sends a follow request to User B.
+    Since all profiles are private, this creates a pending request.
+
+    Request body:
+    {
+        "requester_id": "user_a_id",
+        "requested_id": "user_b_id"
+    }
+    """
+    db = SessionLocal()
+    try:
+        # Check if both users exist
+        requester = db.query(User).filter(User.id == request_data.requester_id).first()
+        requested = db.query(User).filter(User.id == request_data.requested_id).first()
+
+        if not requester or not requested:
+            return {
+                "status": "error",
+                "message": "One or both users not found"
+            }
+
+        # Check if already following
+        existing_follow = db.query(Follow).filter(
+            Follow.follower_id == request_data.requester_id,
+            Follow.following_id == request_data.requested_id
+        ).first()
+
+        if existing_follow:
+            return {
+                "status": "error",
+                "message": "Already following this user"
+            }
+
+        # Check if request already exists
+        existing_request = db.query(FollowRequest).filter(
+            FollowRequest.requester_id == request_data.requester_id,
+            FollowRequest.requested_id == request_data.requested_id
+        ).first()
+
+        if existing_request:
+            return {
+                "status": "error",
+                "message": "Follow request already sent"
+            }
+
+        # Create new follow request
+        new_request = FollowRequest(
+            requester_id=request_data.requester_id,
+            requested_id=request_data.requested_id
+        )
+
+        db.add(new_request)
+        db.commit()
+        db.refresh(new_request)
+
+        logger.info(f"✅ User {request_data.requester_id} sent follow request to {request_data.requested_id}")
+
+        return {
+            "status": "success",
+            "message": "Follow request sent",
+            "request_id": new_request.id
+        }
+
+    except Exception as e:
+        logger.error(f"Error sending follow request: {e}")
+        db.rollback()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.get("/follow/requests/{user_id}")
+async def get_follow_requests(user_id: str):
+    """
+    Get all pending follow requests for a user.
+    Shows who wants to follow them.
+
+    Args:
+        user_id: The user's ID
+
+    Returns:
+        List of pending follow requests with requester info
+    """
+    db = SessionLocal()
+    try:
+        # Get all pending requests for this user
+        requests = db.query(FollowRequest).filter(
+            FollowRequest.requested_id == user_id
+        ).order_by(FollowRequest.created_at.desc()).all()
+
+        # Format results with requester info
+        results = []
+        for req in requests:
+            requester = db.query(User).filter(User.id == req.requester_id).first()
+            if requester:
+                results.append({
+                    "request_id": req.id,
+                    "requester_id": requester.id,
+                    "username": requester.username,
+                    "name": requester.name,
+                    "university": requester.university,
+                    "occupation": requester.occupation,
+                    "created_at": req.created_at.isoformat()
+                })
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "count": len(results),
+            "requests": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching follow requests for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.post("/follow/accept")
+async def accept_follow_request(request_data: FollowActionRequest):
+    """
+    User B accepts User A's follow request.
+    Creates the actual follow relationship and deletes the pending request.
+
+    Request body:
+    {
+        "requester_id": "user_a_id",
+        "requested_id": "user_b_id"
+    }
+    """
+    db = SessionLocal()
+    try:
+        # Find the pending request
+        pending_request = db.query(FollowRequest).filter(
+            FollowRequest.requester_id == request_data.requester_id,
+            FollowRequest.requested_id == request_data.requested_id
+        ).first()
+
+        if not pending_request:
+            return {
+                "status": "error",
+                "message": "Follow request not found"
+            }
+
+        # Create the actual follow relationship
+        new_follow = Follow(
+            follower_id=request_data.requester_id,
+            following_id=request_data.requested_id
+        )
+
+        db.add(new_follow)
+
+        # Delete the pending request
+        db.delete(pending_request)
+
+        db.commit()
+
+        logger.info(f"✅ User {request_data.requested_id} accepted follow from {request_data.requester_id}")
+
+        return {
+            "status": "success",
+            "message": "Follow request accepted"
+        }
+
+    except Exception as e:
+        logger.error(f"Error accepting follow request: {e}")
+        db.rollback()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.post("/follow/decline")
+async def decline_follow_request(request_data: FollowActionRequest):
+    """
+    User B declines User A's follow request.
+    Simply deletes the pending request.
+
+    Request body:
+    {
+        "requester_id": "user_a_id",
+        "requested_id": "user_b_id"
+    }
+    """
+    db = SessionLocal()
+    try:
+        # Find the pending request
+        pending_request = db.query(FollowRequest).filter(
+            FollowRequest.requester_id == request_data.requester_id,
+            FollowRequest.requested_id == request_data.requested_id
+        ).first()
+
+        if not pending_request:
+            return {
+                "status": "error",
+                "message": "Follow request not found"
+            }
+
+        # Delete the pending request
+        db.delete(pending_request)
+        db.commit()
+
+        logger.info(f"❌ User {request_data.requested_id} declined follow from {request_data.requester_id}")
+
+        return {
+            "status": "success",
+            "message": "Follow request declined"
+        }
+
+    except Exception as e:
+        logger.error(f"Error declining follow request: {e}")
+        db.rollback()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.get("/user/{user_id}/followers")
+async def get_followers(user_id: str):
+    """
+    Get all users who follow this user (User B's followers).
+
+    Args:
+        user_id: The user's ID
+
+    Returns:
+        List of followers with their info
+    """
+    db = SessionLocal()
+    try:
+        # Get all follows where this user is being followed
+        follows = db.query(Follow).filter(
+            Follow.following_id == user_id
+        ).all()
+
+        # Get follower info
+        results = []
+        for follow in follows:
+            follower = db.query(User).filter(User.id == follow.follower_id).first()
+            if follower:
+                results.append({
+                    "user_id": follower.id,
+                    "username": follower.username,
+                    "name": follower.name,
+                    "university": follower.university,
+                    "occupation": follower.occupation,
+                    "followed_at": follow.created_at.isoformat()
+                })
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "count": len(results),
+            "followers": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching followers for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.get("/user/{user_id}/following")
+async def get_following(user_id: str):
+    """
+    Get all users that this user follows (who User B is following).
+
+    Args:
+        user_id: The user's ID
+
+    Returns:
+        List of users they're following with their info
+    """
+    db = SessionLocal()
+    try:
+        # Get all follows where this user is the follower
+        follows = db.query(Follow).filter(
+            Follow.follower_id == user_id
+        ).all()
+
+        # Get following info
+        results = []
+        for follow in follows:
+            following = db.query(User).filter(User.id == follow.following_id).first()
+            if following:
+                results.append({
+                    "user_id": following.id,
+                    "username": following.username,
+                    "name": following.name,
+                    "university": following.university,
+                    "occupation": following.occupation,
+                    "followed_at": follow.created_at.isoformat()
+                })
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "count": len(results),
+            "following": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching following for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+@app.get("/user/{user_id}/follower-count")
+async def get_follower_count(user_id: str):
+    """
+    Get the follower and following counts for a user.
+
+    Args:
+        user_id: The user's ID
+
+    Returns:
+        Follower count and following count
+    """
+    db = SessionLocal()
+    try:
+        # Count followers
+        follower_count = db.query(Follow).filter(
+            Follow.following_id == user_id
+        ).count()
+
+        # Count following
+        following_count = db.query(Follow).filter(
+            Follow.follower_id == user_id
+        ).count()
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "follower_count": follower_count,
+            "following_count": following_count
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching counts for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     import uvicorn

@@ -56,3 +56,31 @@ class Design(Base):
     # Relationship back to User
     user = relationship("User", back_populates="designs")
 
+
+class Follow(Base):
+    __tablename__ = 'follows'
+
+    # Primary key
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    # Foreign keys
+    follower_id = Column(String(36), ForeignKey('users.id'), nullable=False)  # User who follows
+    following_id = Column(String(36), ForeignKey('users.id'), nullable=False)  # User being followed
+
+    # Timestamp
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FollowRequest(Base):
+    __tablename__ = 'follow_requests'
+
+    # Primary key
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    # Foreign keys
+    requester_id = Column(String(36), ForeignKey('users.id'), nullable=False)  # User requesting to follow
+    requested_id = Column(String(36), ForeignKey('users.id'), nullable=False)  # User being requested
+
+    # Timestamp
+    created_at = Column(DateTime, default=datetime.utcnow)
+
