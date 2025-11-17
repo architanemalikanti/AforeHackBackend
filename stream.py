@@ -1085,6 +1085,54 @@ async def get_all_sessions():
             "error": str(e)
         }
 
+# ===== PUSH NOTIFICATION ROUTES =====
+
+class DeviceTokenUpdate(BaseModel):
+    user_id: str
+    device_token: str
+
+@app.post("/user/device-token")
+async def update_device_token(token_data: DeviceTokenUpdate):
+    """
+    Register or update a user's APNs device token for push notifications.
+
+    Request body:
+    {
+        "user_id": "uuid-string",
+        "device_token": "apns-device-token"
+    }
+    """
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == token_data.user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        user.device_token = token_data.device_token
+        db.commit()
+
+        logger.info(f"✅ Updated device token for user {token_data.user_id}")
+
+        return {
+            "status": "success",
+            "message": "Device token updated successfully",
+            "user_id": token_data.user_id
+        }
+
+    except Exception as e:
+        logger.error(f"Error updating device token: {e}")
+        db.rollback()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
 # ===== FOLLOW SYSTEM ROUTES =====
 
 # Pydantic models for follow requests
@@ -1108,6 +1156,8 @@ async def send_follow_request(request_data: FollowRequestCreate):
         "requested_id": "user_b_id"
     }
     """
+    from push_notifications import send_follow_request_notification
+
     db = SessionLocal()
     try:
         # Check if both users exist
@@ -1155,6 +1205,16 @@ async def send_follow_request(request_data: FollowRequestCreate):
         db.refresh(new_request)
 
         logger.info(f"✅ User {request_data.requester_id} sent follow request to {request_data.requested_id}")
+
+        # Send push notification to the requested user (User B)
+        if requested.device_token:
+            requester_name = requester.name if requester.name else requester.username
+            await send_follow_request_notification(
+                device_token=requested.device_token,
+                requester_name=requester_name
+            )
+        else:
+            logger.info(f"⚠️  No device token for user {request_data.requested_id}, skipping push notification")
 
         return {
             "status": "success",
@@ -1234,6 +1294,8 @@ async def accept_follow_request(request_data: FollowActionRequest):
         "requested_id": "user_b_id"
     }
     """
+    from push_notifications import send_follow_accepted_notification
+
     db = SessionLocal()
     try:
         # Find the pending request
@@ -1247,6 +1309,10 @@ async def accept_follow_request(request_data: FollowActionRequest):
                 "status": "error",
                 "message": "Follow request not found"
             }
+
+        # Get both users for push notification
+        requester = db.query(User).filter(User.id == request_data.requester_id).first()
+        accepter = db.query(User).filter(User.id == request_data.requested_id).first()
 
         # Create the actual follow relationship
         new_follow = Follow(
@@ -1262,6 +1328,18 @@ async def accept_follow_request(request_data: FollowActionRequest):
         db.commit()
 
         logger.info(f"✅ User {request_data.requested_id} accepted follow from {request_data.requester_id}")
+
+        # Send push notification to the requester (User A) that their request was accepted
+        if requester and requester.device_token:
+            accepter_name = accepter.name if accepter.name else accepter.username
+            accepter_conversations = accepter.conversations if accepter.conversations else []
+            await send_follow_accepted_notification(
+                device_token=requester.device_token,
+                accepter_name=accepter_name,
+                accepter_conversations=accepter_conversations
+            )
+        else:
+            logger.info(f"⚠️  No device token for user {request_data.requester_id}, skipping push notification")
 
         return {
             "status": "success",
