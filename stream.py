@@ -969,6 +969,65 @@ Analyze their conversations and describe their current era:"""
     finally:
         db.close()
 
+class EraPush(BaseModel):
+    user_id: str
+    era_text: str
+
+@app.post("/user/pushEra")
+async def push_era(era_data: EraPush):
+    """
+    Add a new era to the user's eras array.
+    Called when user clicks "Push This Era" in iOS.
+
+    Request body:
+    {
+        "user_id": "uuid-string",
+        "era_text": "archita is entering her law school era..."
+    }
+
+    Returns:
+        Success status and all eras
+    """
+    db = SessionLocal()
+    try:
+        # Find the user
+        user = db.query(User).filter(User.id == era_data.user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        # Initialize eras array if None
+        if user.eras is None:
+            user.eras = []
+
+        # Append the new era to the array
+        user.eras = user.eras + [era_data.era_text]
+        db.commit()
+
+        logger.info(f"✅ Added era for user {era_data.user_id}: {era_data.era_text[:50]}...")
+
+        return {
+            "status": "success",
+            "user_id": era_data.user_id,
+            "era": era_data.era_text,
+            "total_eras": len(user.eras),
+            "all_eras": user.eras,
+            "message": "Era added successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Error saving era for user {era_data.user_id}: {e}")
+        db.rollback()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
 @app.post("/design/create")
 async def create_design(design_data: DesignCreate):
     """

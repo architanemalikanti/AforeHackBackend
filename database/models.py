@@ -29,6 +29,7 @@ class User(Base):
     conversations = Column(JSONB, default=list)  # Array of conversation dicts
     prompt = Column(String, nullable=True)  # Store the dynamic prompt state for user
     device_token = Column(String(255), nullable=True)  # APNs device token for push notifications
+    eras = Column(ARRAY(String), default=list)  # Array of era texts (history of eras)
 
     # One-to-many relationship with Design table
     designs = relationship("Design", back_populates="user")
