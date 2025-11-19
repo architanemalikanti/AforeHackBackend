@@ -1091,6 +1091,52 @@ async def create_design(design_data: DesignCreate):
     finally:
         db.close()
 
+@app.get("/design/{user_id}")
+async def get_user_designs(user_id: str):
+    """
+    Get all designs for a user, ordered by most recent first.
+
+    Args:
+        user_id: The user's ID
+
+    Returns:
+        List of all designs for this user
+    """
+    db = SessionLocal()
+    try:
+        # Get all designs for this user
+        designs = db.query(Design).filter(
+            Design.user_id == user_id
+        ).order_by(Design.created_at.desc()).all()
+
+        designs_list = []
+        for design in designs:
+            designs_list.append({
+                "id": design.id,
+                "two_captions": design.two_captions,
+                "intro_caption": design.intro_caption,
+                "eight_captions": design.eight_captions,
+                "design_name": design.design_name,
+                "song": design.song,
+                "created_at": design.created_at.isoformat()
+            })
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "count": len(designs_list),
+            "designs": designs_list
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching designs for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
 @app.get("/debug/all-sessions")
 async def get_all_sessions():
     """
