@@ -57,14 +57,36 @@ class Agent:
             # Catch any other errors (like httpx.ResponseNotRead)
             error_str = str(e)
 
-            # Even if we catch httpx.ResponseNotRead, check if it mentions overload
+            # Check the exception chain for the original Anthropic error
+            original_exception = e
+            while original_exception is not None:
+                if isinstance(original_exception, anthropic.APIStatusError):
+                    error_body = getattr(original_exception, 'body', {})
+                    error_type = error_body.get('error', {}).get('type', '') if isinstance(error_body, dict) else ''
+
+                    print(f"🔍 DEBUG: Found APIStatusError in exception chain - type: {error_type}")
+
+                    if error_type == 'overloaded_error' and self.fallback_model:
+                        print(f"⚠️ Anthropic overloaded (found in exception chain), falling back to OpenAI...")
+                        try:
+                            message = self.fallback_model_bound.invoke(messages)
+                            return {"messages": [message]}
+                        except Exception as fallback_error:
+                            print(f"❌ FALLBACK ERROR: {type(fallback_error).__name__}: {str(fallback_error)}")
+                            raise fallback_error
+                    break
+
+                # Walk up the exception chain
+                original_exception = getattr(original_exception, '__context__', None)
+
+            # If no Anthropic error found in chain, check string
             is_overload = "overloaded_error" in error_str or "Overloaded" in error_str
 
             print(f"🔍 DEBUG: Caught {type(e).__name__}: {error_str}")
-            print(f"🔍 DEBUG: is_overload = {is_overload}")
+            print(f"🔍 DEBUG: is_overload (from string) = {is_overload}")
 
             if is_overload and self.fallback_model:
-                print(f"⚠️ Anthropic overloaded (detected in wrapped error), falling back to OpenAI...")
+                print(f"⚠️ Anthropic overloaded (detected in wrapped error string), falling back to OpenAI...")
                 try:
                     message = self.fallback_model_bound.invoke(messages)
                     return {"messages": [message]}
