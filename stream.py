@@ -15,7 +15,8 @@ from agent import Agent
 from prompt_manager import set_prompt
 from redis_client import r
 
-load_dotenv()
+# Load .env from the same directory as this script
+load_dotenv(Path(__file__).parent / ".env")
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,13 @@ all_tools = [
 ]
 
 # --- Model ---
+# Debug: Check if API key is loaded
+anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+if anthropic_key:
+    print(f"✅ ANTHROPIC_API_KEY loaded: {anthropic_key[:20]}...")
+else:
+    print("❌ WARNING: ANTHROPIC_API_KEY not found in environment!")
+
 model = ChatAnthropic(model="claude-sonnet-4-20250514")
 
 

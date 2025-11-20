@@ -25,8 +25,15 @@ class Agent:
         messages = state["messages"]
         if self.system:
             messages = [SystemMessage(content=self.system)] + messages
-        message = self.model.invoke(messages)
-        return {"messages": [message]}
+        try:
+            message = self.model.invoke(messages)
+            return {"messages": [message]}
+        except Exception as e:
+            # Log the actual error before it gets masked by httpx
+            print(f"❌ ANTHROPIC API ERROR: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     def exists_action(self, state: AgentState):
         result = state["messages"][-1]
