@@ -38,6 +38,12 @@ class Agent:
             error_str = str(e)
             is_overload = "overloaded_error" in error_str or "Overloaded" in error_str
 
+            # Debug logging
+            print(f"🔍 DEBUG: error_str = {error_str}")
+            print(f"🔍 DEBUG: is_overload = {is_overload}")
+            print(f"🔍 DEBUG: self.fallback_model = {self.fallback_model}")
+            print(f"🔍 DEBUG: has fallback_model_bound = {hasattr(self, 'fallback_model_bound')}")
+
             if is_overload and self.fallback_model:
                 print(f"⚠️ Anthropic overloaded, falling back to OpenAI...")
                 try:
