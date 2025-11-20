@@ -443,6 +443,46 @@ async def get_user_name(user_id: str):
     finally:
         db.close()
 
+@app.get("/user/{user_id}/gender")
+async def get_user_gender_route(user_id: str):
+    """
+    Get a user's gender from Postgres.
+
+    Args:
+        user_id: The user's ID in the database
+
+    Returns:
+        User's gender
+    """
+    from database.db import SessionLocal
+    from database.models import User
+
+    db = SessionLocal()
+    try:
+        # Query user by ID
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            return {
+                "status": "error",
+                "message": "User not found"
+            }
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "gender": user.gender if user.gender else ""
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching user gender for {user_id}: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
 @app.get("/user/{user_id}/introduction")
 async def generate_user_introduction(user_id: str):
     """
