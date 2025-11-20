@@ -1,5 +1,6 @@
 from typing import TypedDict, Annotated
 import operator
+import os
 from langchain_core.messages import AnyMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 
@@ -9,8 +10,9 @@ class AgentState(TypedDict):
 
 
 class Agent:
-    def __init__(self, model, tools, checkpointer, system=""):
+    def __init__(self, model, tools, checkpointer, system="", fallback_model=None):
         self.system = system
+        self.fallback_model = fallback_model
         graph = StateGraph(AgentState)
         graph.add_node("llm", self.call_openai)
         graph.add_node("action", self.take_action)
@@ -20,20 +22,36 @@ class Agent:
         self.graph = graph.compile(checkpointer=checkpointer)
         self.tools = {t.name: t for t in tools}
         self.model = model.bind_tools(tools)
+        if fallback_model:
+            self.fallback_model_bound = fallback_model.bind_tools(tools)
 
     def call_openai(self, state: AgentState):
         messages = state["messages"]
         if self.system:
             messages = [SystemMessage(content=self.system)] + messages
+
         try:
             message = self.model.invoke(messages)
             return {"messages": [message]}
         except Exception as e:
-            # Log the actual error before it gets masked by httpx
-            print(f"❌ ANTHROPIC API ERROR: {type(e).__name__}: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            raise
+            # Check if it's an Anthropic overload error
+            error_str = str(e)
+            is_overload = "overloaded_error" in error_str or "Overloaded" in error_str
+
+            if is_overload and self.fallback_model:
+                print(f"⚠️ Anthropic overloaded, falling back to OpenAI...")
+                try:
+                    message = self.fallback_model_bound.invoke(messages)
+                    return {"messages": [message]}
+                except Exception as fallback_error:
+                    print(f"❌ FALLBACK ERROR: {type(fallback_error).__name__}: {str(fallback_error)}")
+                    raise fallback_error
+            else:
+                # Log the actual error before it gets masked by httpx
+                print(f"❌ API ERROR: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                raise
 
     def exists_action(self, state: AgentState):
         result = state["messages"][-1]

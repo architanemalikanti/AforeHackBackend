@@ -3,6 +3,7 @@ import os, asyncio, json, logging
 from pathlib import Path
 from langchain_core.messages import HumanMessage
 from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from fastapi import FastAPI, Query
@@ -84,14 +85,25 @@ all_tools = [
 ]
 
 # --- Model ---
-# Debug: Check if API key is loaded
+# Debug: Check if API keys are loaded
 anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+openai_key = os.getenv("OPENAI_API_KEY")
+
 if anthropic_key:
     print(f"✅ ANTHROPIC_API_KEY loaded: {anthropic_key[:20]}...")
 else:
     print("❌ WARNING: ANTHROPIC_API_KEY not found in environment!")
 
+if openai_key:
+    print(f"✅ OPENAI_API_KEY loaded: {openai_key[:20]}...")
+else:
+    print("⚠️  OPENAI_API_KEY not found - no fallback available")
+
+# Primary model: Claude
 model = ChatAnthropic(model="claude-sonnet-4-20250514")
+
+# Fallback model: GPT-4o (only if OpenAI key exists)
+fallback_model = ChatOpenAI(model="gpt-4o", temperature=1) if openai_key else None
 
 
 # # --- Instantiate agent (sync) ---
@@ -132,7 +144,7 @@ async def chat_stream(q: str = Query(""), session_id: str = Query(...)):
         background_task_started = False
 
         async with AsyncSqliteSaver.from_conn_string(DB_PATH) as async_memory:
-            async_abot = Agent(model, all_tools, system=dynamic_prompt, checkpointer=async_memory)
+            async_abot = Agent(model, all_tools, system=dynamic_prompt, checkpointer=async_memory, fallback_model=fallback_model)
             async for ev in async_abot.graph.astream_events({"messages": messages}, thread, version="v1"):
                 # Check if verification tool was called and succeeded
                 if ev["event"] == "on_tool_end":
