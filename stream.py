@@ -105,6 +105,9 @@ model = ChatAnthropic(model="claude-sonnet-4-20250514")
 # Fallback model: GPT-4o (only if OpenAI key exists)
 fallback_model = ChatOpenAI(model="gpt-4o", temperature=1) if openai_key else None
 
+# Global flag to track if we should use OpenAI as primary
+use_openai_primary = False
+
 
 # # --- Instantiate agent (sync) ---
 # with SqliteSaver.from_conn_string(":memory:") as memory:
@@ -144,36 +147,85 @@ async def chat_stream(q: str = Query(""), session_id: str = Query(...)):
         background_task_started = False
 
         async with AsyncSqliteSaver.from_conn_string(DB_PATH) as async_memory:
-            async_abot = Agent(model, all_tools, system=dynamic_prompt, checkpointer=async_memory, fallback_model=fallback_model)
-            async for ev in async_abot.graph.astream_events({"messages": messages}, thread, version="v1"):
-                # Check if verification tool was called and succeeded
-                if ev["event"] == "on_tool_end":
-                    tool_name = ev.get("name", "")
-                    tool_output = ev.get("data", {}).get("output", "")
+            # Use OpenAI if global flag is set, otherwise use Anthropic
+            global use_openai_primary
+            primary_model = fallback_model if (use_openai_primary and fallback_model) else model
 
-                    # Signup verification
-                    if tool_name == "test_verification_code" and tool_output == "verified":
-                        verification_succeeded = True
-                        # Start background task immediately
-                        if not background_task_started:
-                            threading.Thread(
-                                target=finalize_user_background,
-                                args=(session_id,),
-                                daemon=True
-                            ).start()
-                            background_task_started = True
-                            logger.info(f"🚀 Started background finalization for {session_id}")
+            try:
+                async_abot = Agent(primary_model, all_tools, system=dynamic_prompt, checkpointer=async_memory, fallback_model=fallback_model)
+                async for ev in async_abot.graph.astream_events({"messages": messages}, thread, version="v1"):
+                    # Check if verification tool was called and succeeded
+                    if ev["event"] == "on_tool_end":
+                        tool_name = ev.get("name", "")
+                        tool_output = ev.get("data", {}).get("output", "")
 
-                    # Login verification
-                    if tool_name == "finalize_login" and tool_output == "verified":
-                        login_succeeded = True
-                        logger.info(f"🚀 Login completed for {session_id}")
+                        # Signup verification
+                        if tool_name == "test_verification_code" and tool_output == "verified":
+                            verification_succeeded = True
+                            # Start background task immediately
+                            if not background_task_started:
+                                threading.Thread(
+                                    target=finalize_user_background,
+                                    args=(session_id,),
+                                    daemon=True
+                                ).start()
+                                background_task_started = True
+                                logger.info(f"🚀 Started background finalization for {session_id}")
 
-                # Stream LLM tokens
-                if ev["event"] == "on_chat_model_stream":
-                    content = ev["data"]["chunk"].content
-                    if content:
-                        yield f"event: token\ndata: {json.dumps({'content': content})}\n\n"
+                        # Login verification
+                        if tool_name == "finalize_login" and tool_output == "verified":
+                            login_succeeded = True
+                            logger.info(f"🚀 Login completed for {session_id}")
+
+                    # Stream LLM tokens
+                    if ev["event"] == "on_chat_model_stream":
+                        content = ev["data"]["chunk"].content
+                        if content:
+                            yield f"event: token\ndata: {json.dumps({'content': content})}\n\n"
+
+            except Exception as e:
+                # Check if Anthropic is overloaded
+                error_str = str(e)
+                is_overload = "overloaded_error" in error_str or "Overloaded" in error_str or "529" in error_str
+
+                if is_overload and fallback_model and not use_openai_primary:
+                    logger.info(f"⚠️ Anthropic overloaded! Switching to OpenAI for future requests...")
+                    # Set global flag to use OpenAI going forward
+                    use_openai_primary = True
+                    # Retry THIS request with OpenAI
+                    async_abot = Agent(fallback_model, all_tools, system=dynamic_prompt, checkpointer=async_memory, fallback_model=None)
+                    async for ev in async_abot.graph.astream_events({"messages": messages}, thread, version="v1"):
+                        # Check if verification tool was called and succeeded
+                        if ev["event"] == "on_tool_end":
+                            tool_name = ev.get("name", "")
+                            tool_output = ev.get("data", {}).get("output", "")
+
+                            # Signup verification
+                            if tool_name == "test_verification_code" and tool_output == "verified":
+                                verification_succeeded = True
+                                # Start background task immediately
+                                if not background_task_started:
+                                    threading.Thread(
+                                        target=finalize_user_background,
+                                        args=(session_id,),
+                                        daemon=True
+                                    ).start()
+                                    background_task_started = True
+                                    logger.info(f"🚀 Started background finalization for {session_id}")
+
+                            # Login verification
+                            if tool_name == "finalize_login" and tool_output == "verified":
+                                login_succeeded = True
+                                logger.info(f"🚀 Login completed for {session_id}")
+
+                        # Stream LLM tokens
+                        if ev["event"] == "on_chat_model_stream":
+                            content = ev["data"]["chunk"].content
+                            if content:
+                                yield f"event: token\ndata: {json.dumps({'content': content})}\n\n"
+                else:
+                    # Not an overload or already using OpenAI, re-raise
+                    raise
 
         # If verification succeeded, send onboarding_complete immediately
         if verification_succeeded:
