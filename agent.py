@@ -1,7 +1,7 @@
 from typing import TypedDict, Annotated
 import operator
 import os
-from langchain_core.messages import AnyMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AnyMessage, SystemMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
 import anthropic
 
@@ -42,10 +42,26 @@ class Agent:
             print(f"🔍 DEBUG: Caught APIStatusError - type: {error_type}")
 
             if error_type == 'overloaded_error' and self.fallback_model:
-                print(f"⚠️ Anthropic overloaded, falling back to OpenAI...")
+                print(f"⚠️ Anthropic overloaded, falling back to OpenAI with streaming...")
                 try:
-                    message = self.fallback_model_bound.invoke(messages)
-                    return {"messages": [message]}
+                    # Use streaming with OpenAI to maintain the same behavior
+                    full_content = ""
+                    tool_calls_list = []
+
+                    for chunk in self.fallback_model_bound.stream(messages):
+                        # Accumulate content and tool calls from stream
+                        if hasattr(chunk, 'content') and chunk.content:
+                            full_content += chunk.content
+                        if hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                            tool_calls_list.extend(chunk.tool_calls)
+
+                    # Create the final AIMessage with accumulated content
+                    final_message = AIMessage(
+                        content=full_content,
+                        tool_calls=tool_calls_list if tool_calls_list else []
+                    )
+
+                    return {"messages": [final_message]}
                 except Exception as fallback_error:
                     print(f"❌ FALLBACK ERROR: {type(fallback_error).__name__}: {str(fallback_error)}")
                     raise fallback_error
@@ -67,10 +83,26 @@ class Agent:
                     print(f"🔍 DEBUG: Found APIStatusError in exception chain - type: {error_type}")
 
                     if error_type == 'overloaded_error' and self.fallback_model:
-                        print(f"⚠️ Anthropic overloaded (found in exception chain), falling back to OpenAI...")
+                        print(f"⚠️ Anthropic overloaded (found in exception chain), falling back to OpenAI with streaming...")
                         try:
-                            message = self.fallback_model_bound.invoke(messages)
-                            return {"messages": [message]}
+                            # Use streaming with OpenAI to maintain the same behavior
+                            full_content = ""
+                            tool_calls_list = []
+
+                            for chunk in self.fallback_model_bound.stream(messages):
+                                # Accumulate content and tool calls from stream
+                                if hasattr(chunk, 'content') and chunk.content:
+                                    full_content += chunk.content
+                                if hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                                    tool_calls_list.extend(chunk.tool_calls)
+
+                            # Create the final AIMessage with accumulated content
+                            final_message = AIMessage(
+                                content=full_content,
+                                tool_calls=tool_calls_list if tool_calls_list else []
+                            )
+
+                            return {"messages": [final_message]}
                         except Exception as fallback_error:
                             print(f"❌ FALLBACK ERROR: {type(fallback_error).__name__}: {str(fallback_error)}")
                             raise fallback_error
@@ -86,10 +118,26 @@ class Agent:
             print(f"🔍 DEBUG: is_overload (from string) = {is_overload}")
 
             if is_overload and self.fallback_model:
-                print(f"⚠️ Anthropic overloaded (detected in wrapped error string), falling back to OpenAI...")
+                print(f"⚠️ Anthropic overloaded (detected in wrapped error string), falling back to OpenAI with streaming...")
                 try:
-                    message = self.fallback_model_bound.invoke(messages)
-                    return {"messages": [message]}
+                    # Use streaming with OpenAI to maintain the same behavior
+                    full_content = ""
+                    tool_calls_list = []
+
+                    for chunk in self.fallback_model_bound.stream(messages):
+                        # Accumulate content and tool calls from stream
+                        if hasattr(chunk, 'content') and chunk.content:
+                            full_content += chunk.content
+                        if hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+                            tool_calls_list.extend(chunk.tool_calls)
+
+                    # Create the final AIMessage with accumulated content
+                    final_message = AIMessage(
+                        content=full_content,
+                        tool_calls=tool_calls_list if tool_calls_list else []
+                    )
+
+                    return {"messages": [final_message]}
                 except Exception as fallback_error:
                     print(f"❌ FALLBACK ERROR: {type(fallback_error).__name__}: {str(fallback_error)}")
                     raise fallback_error
