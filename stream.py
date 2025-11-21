@@ -123,6 +123,15 @@ use_openai_primary = False
 # --- FastAPI app + SSE streaming endpoint ---
 app = FastAPI()
 
+
+apns = APNs(
+      key='/home/ec2-user/keys/AuthKey_2JXWNB9AAR.p8',
+      key_id='2JXWNB9AAR',  # This is from your filename
+      team_id='FRR7RJ635S',  # Get this from Apple Developer Portal → Membership
+      topic='com.test.GlowProject',  # Your bundle identifier from Xcode
+      use_sandbox=True
+  )
+
 @app.get("/chat/stream") 
 async def chat_stream(q: str = Query(""), session_id: str = Query(...)):
     """
