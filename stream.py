@@ -15,6 +15,7 @@ from database.models import User, Design, Follow, FollowRequest, Era
 from agent import Agent
 from prompt_manager import set_prompt
 from redis_client import r
+from aioapns import APNs, NotificationRequest
 
 # Load .env from the same directory as this script
 load_dotenv(Path(__file__).parent / ".env")
